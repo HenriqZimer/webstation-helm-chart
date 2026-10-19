@@ -24,6 +24,8 @@ maintainers:
 annotations:
   artifacthub.io/license: MIT
   artifacthub.io/links: |
+    - name: Helm Repository
+      url: https://henriqzimer.github.io/webstation-helm-chart/
     - name: Chart Source
       url: https://github.com/HenriqZimer/webstation-helm-chart
     - name: romm-webstation image

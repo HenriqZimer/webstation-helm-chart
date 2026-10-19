@@ -95,6 +95,10 @@ jobs:
 
       - name: Publish artifacthub-repo.yaml to gh-pages
         run: |
+          if [ ! -f artifacthub-repo.yaml ]; then
+            echo "No artifacthub-repo.yaml in this repo, skipping"
+            exit 0
+          fi
           git fetch origin gh-pages
           git worktree add /tmp/ah-repo-sync FETCH_HEAD
           cp artifacthub-repo.yaml /tmp/ah-repo-sync/artifacthub-repo.yaml
