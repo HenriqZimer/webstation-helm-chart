@@ -1,0 +1,172 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "webstation.fullname" . }}
+  labels:
+    {{- include "webstation.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "webstation.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        {{- if not .Values.broker.existingSecret }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "webstation.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- $psc := deepCopy (.Values.podSecurityContext | default dict) }}
+      {{- if and .Values.gpu.enabled (eq .Values.gpu.vendor "intel-amd") .Values.gpu.supplementalGroups }}
+      {{- $_ := set $psc "supplementalGroups" .Values.gpu.supplementalGroups }}
+      {{- end }}
+      {{- if $psc }}
+      securityContext:
+        {{- toYaml $psc | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "webstation.serviceAccountName" . }}
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- if or .Values.securityContext .Values.seccompUnconfined }}
+          securityContext:
+            {{- with .Values.securityContext }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+            {{- if .Values.seccompUnconfined }}
+            seccompProfile:
+              type: Unconfined
+            {{- end }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.httpPort }}
+              protocol: TCP
+            - name: https
+              containerPort: {{ .Values.service.httpsPort }}
+              protocol: TCP
+          env:
+            {{- range $key, $value := .Values.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+            - name: BROKER_SECRET
+              valueFrom:
+                secretKeyRef:
+                  {{- if .Values.broker.existingSecret }}
+                  name: {{ .Values.broker.existingSecret }}
+                  key: {{ .Values.broker.existingSecretKey }}
+                  {{- else }}
+                  name: {{ include "webstation.fullname" . }}-broker
+                  key: BROKER_SECRET
+                  {{- end }}
+            {{- if and .Values.gpu.enabled (eq .Values.gpu.vendor "nvidia") }}
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: "all"
+            - name: NVIDIA_DRIVER_CAPABILITIES
+              value: {{ .Values.gpu.nvidia.driverCapabilities | quote }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.envFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: config
+              mountPath: /config
+            {{- if .Values.persistence.library.enabled }}
+            - name: library
+              mountPath: /romm/library
+              readOnly: {{ .Values.persistence.library.readOnly }}
+            {{- end }}
+            - name: shm
+              mountPath: /dev/shm
+            {{- if and .Values.gpu.enabled (eq .Values.gpu.vendor "intel-amd") }}
+            - name: dri
+              mountPath: {{ .Values.gpu.devicePath }}
+            {{- end }}
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          resources:
+            requests:
+              {{- toYaml .Values.resources.requests | nindent 14 }}
+            limits:
+              {{- toYaml .Values.resources.limits | nindent 14 }}
+              {{- if and .Values.gpu.enabled (eq .Values.gpu.vendor "nvidia") (gt (int .Values.gpu.nvidia.count) 0) }}
+              nvidia.com/gpu: {{ .Values.gpu.nvidia.count }}
+              {{- end }}
+          {{- if .Values.probes.enabled }}
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 120
+            periodSeconds: 20
+            failureThreshold: 6
+          {{- end }}
+      volumes:
+        {{- range $name := list "config" "library" }}
+        {{- $p := get $.Values.persistence $name }}
+        {{- if or (eq $name "config") $p.enabled }}
+        - name: {{ $name }}
+          {{- if not $p.enabled }}
+          emptyDir: {}
+          {{- else if eq $p.type "pvc" }}
+          persistentVolumeClaim:
+            claimName: {{ $p.existingClaim | default (printf "%s-%s" (include "webstation.fullname" $) $name) }}
+          {{- else if eq $p.type "hostPath" }}
+          hostPath:
+            path: {{ $p.hostPath }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- end }}
+        {{- end }}
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: {{ .Values.shmSize }}
+        {{- if and .Values.gpu.enabled (eq .Values.gpu.vendor "intel-amd") }}
+        - name: dri
+          hostPath:
+            path: {{ .Values.gpu.devicePath }}
+        {{- end }}
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

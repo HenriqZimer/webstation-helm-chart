@@ -1,0 +1,236 @@
+# -- Number of replicas. The container runs ONE streaming session at a time
+# (one display), and keeps state in /config, so keep this at 1. To serve more
+# concurrent players, install this chart a second time as another release and
+# list both in RomM's streaming.containers (RomM pools them per platform).
+replicaCount: 1
+
+# -- Number of old ReplicaSets to retain for rollback history.
+revisionHistoryLimit: 3
+
+# -- Image pull secrets to authenticate with private repositories.
+imagePullSecrets: []
+
+# -- Override the default name of the chart.
+nameOverride: ""
+# -- Override the default full name of the chart.
+fullnameOverride: ""
+
+# -- Annotations to add to the pod.
+podAnnotations: {}
+# -- Additional labels to add to the pod.
+podLabels: {}
+
+# -- ServiceAccount configuration.
+serviceAccount:
+  # -- Specifies whether a ServiceAccount should be created.
+  create: false
+  # -- Annotations to add to the ServiceAccount.
+  annotations: {}
+  # -- Name of the ServiceAccount to use. If not set and create is true, a
+  # name is generated using the fullname template. If create is false,
+  # defaults to "default".
+  name: ""
+
+image:
+  # -- romm-webstation image (Selkies desktop + every emulator + romm-broker).
+  # amd64 only. https://github.com/romm-streaming/romm-webstation
+  repository: ghcr.io/romm-streaming/romm-webstation
+  # -- Image tag, pinned to a romm-broker release. "latest" tracks the newest
+  # stable release (rebuilt weekly for package updates).
+  tag: "v0.15.1"
+  # -- Image pull policy.
+  pullPolicy: IfNotPresent
+
+broker:
+  # -- Shared secret RomM sends as the X-Broker-Secret header (BROKER_SECRET).
+  # The broker REFUSES TO START without one. It must equal RomM's
+  # STREAMING_BROKER_SECRET env var (or the container's `broker_secret` in
+  # RomM's config.yml - the two can't be mixed, see the README).
+  # SECURITY WARNING: this default is a public placeholder - override it
+  # (`openssl rand -hex 32`) or use existingSecret.
+  secret: "CHANGEME-generate-your-own-with-openssl-rand-hex-32"
+  # -- Use a pre-created Secret instead (e.g. from ExternalSecrets). When set,
+  # `broker.secret` is ignored and no Secret is created.
+  existingSecret: ""
+  # -- Key inside existingSecret that holds the secret.
+  existingSecretKey: BROKER_SECRET
+
+env:
+  # -- User ID the desktop, emulators and broker run as. Match this to the
+  # owner of the /config and /romm/library volumes.
+  PUID: "1000"
+  # -- Group ID the app runs as inside the container.
+  PGID: "1000"
+  # -- Timezone, e.g. "America/Sao_Paulo".
+  TZ: "Etc/UTC"
+  # -- URL path everything (Selkies UI + broker API) is served under. MUST
+  # match the ingress path below AND the `subfolder` of this container in
+  # RomM's config.yml, trailing slash included.
+  SUBFOLDER: "/streaming/"
+  # --- Optional settings -----------------------------------------------------
+  # Add any of these to the map. Broker/emulator variables:
+  # https://romm-streaming.github.io/romm-broker/docs/configuration
+  # Selkies variables: https://docs.linuxserver.io/selkies/user-guide/configuration/
+  #
+  # Multi-GPU hosts - pin the GPU used for rendering and for encoding:
+  #   DRINODE: "/dev/dri/renderD129"
+  #   DRI_NODE: "/dev/dri/renderD129"
+  # Old CPUs without AVX2 (pre-Haswell / pre-Ryzen):
+  #   EDEN_LEGACY: "true"     # ~70 MB download on first start
+  #   XEMU_LEGACY: "true"     # ~16 MB download on first start
+  # Library mounted somewhere other than /romm/library: set ROM_ROOT to it (or a
+  # parent) AND `library_path` on the container entry in RomM's config.yml.
+  #   ROM_ROOT: "/mnt/games/library"
+  # Streaming quality/latency:
+  #   SELKIES_VIDEO_STREAMING_MODE: "true"
+  #   SELKIES_FRAMERATE: "60"
+  #   SELKIES_ENCODER: "h264enc"
+  # DOCKER_MODS etc.: see the linuxserver documentation.
+
+# -- Extra environment variables, in raw Kubernetes `env` entry form
+# (supports valueFrom). Merged after the `env` map above.
+extraEnv: []
+
+# -- Extra envFrom sources (ConfigMaps/Secrets), raw Kubernetes form.
+envFrom: []
+
+service:
+  # -- Service type (ClusterIP, NodePort, or LoadBalancer).
+  type: ClusterIP
+  # -- HTTP port. The Selkies UI AND the broker API are both served here
+  # (under env.SUBFOLDER). This is the port RomM's `broker_host` must use.
+  httpPort: 3000
+  # -- HTTPS port (self-signed cert), handy for direct testing via port-forward.
+  httpsPort: 3001
+  # -- Annotations for the Service.
+  annotations: {}
+  # -- Labels for the Service.
+  labels: {}
+
+ingress:
+  # -- Enable an Ingress in front of the HTTP port. Browsers MUST reach the
+  # stream over HTTPS (Selkies WebRTC needs a secure context), so enable TLS.
+  enabled: false
+  # -- IngressClass name.
+  className: "traefik"
+  # -- Extra annotations for the Ingress.
+  annotations: {}
+  # -- Hosts/paths. To serve the stream on RomM's own origin (RomM config.yml:
+  # `host: /streaming`) use the SAME host as RomM's ingress and a path equal to
+  # env.SUBFOLDER (without the trailing slash). Ingress controllers merge rules
+  # for the same host, and the longer path wins over RomM's "/".
+  hosts:
+    - host: romm.example.com
+      paths:
+        - path: /streaming
+          pathType: Prefix
+  # -- TLS config, e.g. the same secret RomM's ingress uses.
+  tls: []
+  #  - secretName: romm-tls
+  #    hosts:
+  #      - romm.example.com
+
+persistence:
+  # -- /config: the user's home - emulator settings, BIOS/firmware/keys and
+  # SAVE DATA. Keep this persistent.
+  config:
+    enabled: true
+    # -- One of: pvc, hostPath, emptyDir.
+    type: pvc
+    hostPath: ""
+    accessMode: ReadWriteOnce
+    size: 20Gi
+    annotations: {}
+    storageClass: ""
+    existingClaim: ""
+  # -- /romm/library: the SAME ROM library RomM mounts, at the SAME path
+  # (RomM sends ROM paths relative to /romm/library). Normally point
+  # existingClaim at RomM's library PVC (RomM chart: `<release>-library`),
+  # which therefore needs to be ReadWriteMany (NFS/TrueNAS) unless both pods
+  # land on the same node.
+  library:
+    enabled: true
+    # -- One of: pvc, hostPath, emptyDir.
+    type: pvc
+    hostPath: ""
+    accessMode: ReadWriteMany
+    size: 100Gi
+    annotations: {}
+    storageClass: ""
+    existingClaim: ""
+    # -- Mount the library read-only (recommended, the emulators only read it;
+    # save data lives in /config and is synced back through RomM).
+    readOnly: true
+
+# -- Extra volumes, raw Kubernetes `volumes` entries.
+extraVolumes: []
+# - name: bios
+#   persistentVolumeClaim:
+#     claimName: emulator-bios
+
+# -- Extra volume mounts, raw Kubernetes `volumeMounts` entries. Example: a
+# pre-filled BIOS folder for RetroArch's shared system directory.
+extraVolumeMounts: []
+# - name: bios
+#   mountPath: /config/.config/retroarch/system
+#   readOnly: true
+
+# -- Size of the /dev/shm mount (memory-backed). Emulators' JIT recompilers
+# (PCSX2, xemu, ...) crash with SIGBUS under the tiny container default.
+shmSize: 2Gi
+
+# -- GPU/hardware acceleration passthrough. The image only runs in Wayland
+# mode and is meant for a GPU - without one most emulators will not work.
+gpu:
+  enabled: true
+  # -- GPU backend: "intel-amd" (a /dev/dri hostPath mount) or "nvidia" (via
+  # the NVIDIA device plugin - its DaemonSet must already be installed;
+  # host driver 580+ is required by the image).
+  vendor: intel-amd
+  # -- Host device path to mount into the container. Only for "intel-amd".
+  devicePath: /dev/dri
+  # -- Supplemental group IDs so the container can open the device node
+  # (host's "render"/"video" GIDs: `getent group render video` on the node).
+  supplementalGroups: []
+  # -- Only used when vendor is "nvidia".
+  nvidia:
+    # -- Number of GPUs to request via the `nvidia.com/gpu` resource limit. Set 0
+    # to NOT request one (the pod still sees every GPU through NVIDIA_VISIBLE_DEVICES=all
+    # with the nvidia runtime) - use it to share a single GPU with other pods.
+    count: 1
+    # -- NVIDIA_DRIVER_CAPABILITIES forwarded to the container.
+    driverCapabilities: all
+
+# -- Disable the default seccomp profile. Some emulator JITs crash under it on
+# certain kernel/libseccomp combinations ("Unhandled SIGBUS/SIGSEGV" right
+# after a game starts). Removes a real security boundary - only if needed.
+seccompUnconfined: false
+
+resources:
+  requests:
+    cpu: "1"
+    memory: 2Gi
+  limits:
+    cpu: "6"
+    memory: 10Gi
+
+# -- Security context for the pod.
+podSecurityContext: {}
+
+# -- Security context for the container. The image starts as root and drops
+# privileges via PUID/PGID, so this is empty by default.
+securityContext: {}
+
+# -- Node selector. The image is amd64 only.
+nodeSelector:
+  kubernetes.io/arch: amd64
+
+# -- Tolerations for pod scheduling.
+tolerations: []
+
+# -- Affinity rules for pod scheduling.
+affinity: {}
+
+probes:
+  # -- Readiness/liveness TCP probe on the HTTP port.
+  enabled: true

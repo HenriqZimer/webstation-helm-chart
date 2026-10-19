@@ -1,0 +1,25 @@
+{{- range $name := list "config" "library" }}
+{{- $p := get $.Values.persistence $name }}
+{{- if and $p.enabled (eq $p.type "pvc") (not $p.existingClaim) }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ printf "%s-%s" (include "webstation.fullname" $) $name }}
+  labels:
+    {{- include "webstation.labels" $ | nindent 4 }}
+  {{- with $p.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  accessModes:
+    - {{ $p.accessMode }}
+  {{- with $p.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ $p.size }}
+{{- end }}
+{{- end }}

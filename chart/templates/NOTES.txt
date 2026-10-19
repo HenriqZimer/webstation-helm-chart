@@ -1,0 +1,37 @@
+webstation has been deployed as {{ include "webstation.fullname" . }} in namespace {{ .Release.Namespace }}.
+
+Wire it into RomM (romm.config.data / config.yml):
+
+  streaming:
+    enabled: true
+    containers:
+      - protocol: webstation
+        host: {{ if .Values.ingress.enabled }}{{ (index .Values.ingress.hosts 0).host | printf "https://%s" }}{{ (index (index .Values.ingress.hosts 0).paths 0).path }}{{ else }}https://<public-host>{{ trimSuffix "/" .Values.env.SUBFOLDER }}{{ end }}
+        subfolder: {{ trimSuffix "/" .Values.env.SUBFOLDER }}
+        broker_host: http://{{ include "webstation.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.httpPort }}
+        platforms:
+          ps2: pcsx2
+          ngc: dolphin
+          snes: retroarch
+
+and set the RomM env STREAMING_BROKER_SECRET to the same value as BROKER_SECRET
+(or put it in `broker_secret` on the entry above and leave the env var UNSET).
+{{- if not .Values.ingress.enabled }}
+
+No Ingress is enabled. To test the desktop, port-forward and open the HTTPS port:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "webstation.fullname" . }} 3001:{{ .Values.service.httpsPort }}
+Then open https://localhost:3001{{ .Values.env.SUBFOLDER }}  (first run: set up each emulator's BIOS/keys there).
+{{- end }}
+{{- if and (not .Values.broker.existingSecret) (hasPrefix "CHANGEME" .Values.broker.secret) }}
+
+WARNING: broker.secret is still the public placeholder. Set your own.
+{{- end }}
+{{- if not (hasSuffix "/" .Values.env.SUBFOLDER) }}
+
+WARNING: env.SUBFOLDER should include the trailing slash (e.g. "/streaming/").
+{{- end }}
+{{- if and .Values.persistence.library.enabled (eq .Values.persistence.library.type "pvc") (not .Values.persistence.library.existingClaim) }}
+
+WARNING: persistence.library created a NEW EMPTY volume. RomM and webstation must share the SAME
+library - set persistence.library.existingClaim to RomM's library PVC (needs ReadWriteMany).
+{{- end }}
