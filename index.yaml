@@ -1,0 +1,50 @@
+apiVersion: v1
+entries:
+  webstation:
+  - annotations:
+      artifacthub.io/changes: |
+        - kind: added
+          description: Initial release of the webstation Helm chart - one container serving every emulator to RomM through the webstation streaming protocol
+      artifacthub.io/license: MIT
+      artifacthub.io/links: |
+        - name: Helm Repository
+          url: https://henriqzimer.github.io/webstation-helm-chart/
+        - name: Chart Source
+          url: https://github.com/HenriqZimer/webstation-helm-chart
+        - name: romm-webstation image
+          url: https://github.com/romm-streaming/romm-webstation
+        - name: romm-broker docs
+          url: https://romm-streaming.github.io/romm-broker/
+        - name: RomM Emulator Streaming
+          url: https://docs.romm.app/latest/using/emulator-streaming/
+        - name: Maintainer Website
+          url: https://henriqzimer.com.br
+    apiVersion: v2
+    appVersion: v0.15.1
+    created: "2026-10-19T13:36:49.833144658Z"
+    description: A Helm chart for romm-webstation - the all-in-one emulation desktop
+      (Selkies) driven by romm-broker, for RomM's webstation emulator-streaming protocol
+    digest: 9382d177595bbc5ab4f4b93fc1cd80288cc395303090762f198a74ed98f35b66
+    home: https://romm-streaming.github.io/romm-broker/
+    icon: https://raw.githubusercontent.com/rommapp/romm/master/.github/resources/isotipo.png
+    keywords:
+    - webstation
+    - romm
+    - emulator
+    - retrogaming
+    - selkies
+    - streaming
+    maintainers:
+    - email: henrique.zimermann@outlook.com
+      name: HenriqZimer
+      url: https://henriqzimer.com.br
+    name: webstation
+    sources:
+    - https://github.com/romm-streaming/romm-webstation
+    - https://github.com/romm-streaming/romm-broker
+    - https://github.com/HenriqZimer/webstation-helm-chart
+    type: application
+    urls:
+    - https://github.com/HenriqZimer/webstation-helm-chart/releases/download/v0.1.0/webstation-0.1.0.tgz
+    version: 0.1.0
+generated: "2026-10-19T13:36:49.833149435Z"
